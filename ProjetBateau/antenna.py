@@ -18,9 +18,18 @@ class Antenna:
             msg, addr = self.sock.recvfrom(1024)
             print(msg)
             time.sleep((1/self.freq)*1000)
+            
+    def str_to_bin(self, msg):
+        out = []
+        for char in msg:
+            out.append(str(bin(ord(char)))[2:])
+            for _ in range(8 - len(out[-1])):
+                out[-1] = f"0{out[-1]}"
+        return "".join(out)
+    
     
     def send(self, msg):
-        self.sock.send(msg.encode("ascii"))
+        self.sock.send(self.str_to_bin(msg).encode("ascii"))
         
         
 if __name__=="__main__":
