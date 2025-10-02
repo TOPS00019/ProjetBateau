@@ -1,7 +1,7 @@
 import socket
 
 def receive_data(port):
-    host = '0.0.0.0'
+    host = ''
     """Receive data on a specified host and port using a UDP socket."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
