@@ -19,7 +19,7 @@ class Antenna:
     def listen(self) -> None:
         print(f"Antenne en écoute sur le canal {self.channel}\n")
         while True:
-            msg, addr = self.sock.recvfrom(1024)
+            msg, addr = self.sock.recvfrom(2048)
             self.ais.handle_transmission(msg, self.channel)
             # time.sleep((1/self.freq)*1000)
 

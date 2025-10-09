@@ -35,7 +35,7 @@ class Frequency:
     def listen(self) -> None:
         print(f"Serveur en écoute sur {misc.get_server_ip()}:{misc.get_server_port()}\n")
         while True:
-            msg, addr = self.sock.recvfrom(1024)
+            msg, addr = self.sock.recvfrom(2048)
             self.handle_reception(msg)
             
     def dev_menu(self) -> None:
