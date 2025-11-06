@@ -1,9 +1,9 @@
-import boat
-import ais
-import random
+from boat import Boat
+from ais import AIS
+from random import randint
 
 
-class MainBoat(boat.Boat):
+class MainBoat(Boat):
     def __init__(self,
         mmsi: int = 123456789,
         imo_number: int = 0,
@@ -68,9 +68,9 @@ class MainBoat(boat.Boat):
             true_heading,
         )
         
-        self.mmsi = random.randint(0,1000)
+        self.mmsi = randint(0,1000)
         
-        self.ais = ais.AIS(self)
+        self.ais = AIS(self)
         
 
 if __name__ == "__main__":

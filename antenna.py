@@ -1,6 +1,6 @@
-import socket
-import threading
-import misc
+from socket import socket, AF_INET, SOCK_DGRAM, SOL_SOCKET, SO_REUSEADDR, SO_BROADCAST
+from threading import Thread
+from misc import get_server_broadcast_port, get_server_port, get_server_ip, log
 from typing import Literal
 
 
@@ -24,9 +24,9 @@ class Antenna:
         self.freq: int = freq
         self.ais = ais
         self.channel: Literal["87B", "88B"] = "87B" if freq == 161975000 else "88B"
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock = socket(AF_INET, SOCK_DGRAM)
+        self.sock.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+        self.sock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         # bind to the local broadcast port used by boats for this channel
         # Bind the socket to the boat's local IP and the broadcast port
         # for this channel so we can receive broadcasts. We also connect
@@ -34,9 +34,9 @@ class Antenna:
         # convenient way to set the default send target (it does not
         # create a TCP connection; UDP 'connect' simply records the
         # peer address for send()).
-        self.sock.bind((misc.get_ip(), misc.get_server_broadcast_port(self.channel)))
-        self.sock.connect((misc.get_server_ip(), misc.get_server_port(self.channel)))
-        self.listener_thread = threading.Thread(target=self.listen)
+        self.sock.bind(("", get_server_broadcast_port(self.channel)))
+        self.sock.connect((get_server_ip(), get_server_port(self.channel)))
+        self.listener_thread = Thread(target=self.listen)
         self.listener_thread.start()
 
     def listen(self) -> None:
@@ -46,7 +46,7 @@ class Antenna:
         :meth:`AIS.handle_transmission`. Any exceptions are swallowed to
         keep the listening thread alive.
         """
-        misc.log(f"Antenne en écoute sur le canal {self.channel}.")
+        log(f"Antenne en écoute sur le canal {self.channel}.")
         while True:
             try:
                 msg, addr = self.sock.recvfrom(5096)
@@ -56,7 +56,7 @@ class Antenna:
                 pass
 
     def send(self, msg: str) -> None:
-        """Send raw bytes via the antenna's UDP socket.
+        """Send raw bytes via the antenna's UDP
 
         Parameters
         ----------

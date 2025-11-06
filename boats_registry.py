@@ -1,7 +1,7 @@
-import boat
+from boat import Boat, BOAT_INFO_KEYS, MODIFIABLE_BOAT_INFO_KEYS
 
 
-class BoatsList:
+class BoatsRegistry:
     def __init__(self) -> None:
         """Simple registry of Boat objects indexed by MMSI.
 
@@ -37,13 +37,13 @@ class BoatsList:
     def add_boat(self, boat_info: dict) -> None:
         """Create and register a new Boat from a parameter dictionary.
 
-        Only keys listed in ``boat.BOAT_INFO_KEYS`` are applied to the
+        Only keys listed in ``BOAT_INFO_KEYS`` are applied to the
         new Boat instance. The boat_info dictionary must contain an
         "mmsi" key used as the registry key.
         """
-        new_boat = boat.Boat()
+        new_boat = Boat()
         for param in boat_info:
-            if param in boat.BOAT_INFO_KEYS:
+            if param in BOAT_INFO_KEYS:
                 new_boat.set_parameter(param, boat_info[param])
         self.boats[boat_info["mmsi"]] = new_boat
     
@@ -59,9 +59,9 @@ class BoatsList:
     def update_boat(self, mmsi: int, new_boat_info: dict) -> None:
         """Update mutable fields of an existing registered boat.
 
-        Only parameter keys listed in ``boat.MODIFIABLE_BOAT_INFO_KEYS``
+        Only parameter keys listed in ``MODIFIABLE_BOAT_INFO_KEYS``
         will be applied; other keys are ignored.
         """
         for param in new_boat_info:
-            if param in boat.MODIFIABLE_BOAT_INFO_KEYS:
+            if param in MODIFIABLE_BOAT_INFO_KEYS:
                 self.boats[mmsi].set_parameter(param, new_boat_info[param])

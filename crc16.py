@@ -8,7 +8,6 @@ class CRC16:
         """
         pass
 
-
     def compute_crc(self, bits: str) -> str:
         """Compute a 16-bit CRC for a binary string.
 
@@ -37,7 +36,6 @@ class CRC16:
             if msb:
                 crc ^= poly
         return format(crc, "016b")
-
 
     def verify_crc(self, bits: str, crc: str) -> bool:
         """Verify that the provided crc matches the computed CRC.

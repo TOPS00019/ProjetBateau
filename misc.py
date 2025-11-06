@@ -1,9 +1,7 @@
 from dotenv import load_dotenv
 from os import getenv
-import datetime
-import slots_map
+from datetime import datetime
 import numpy as np
-import datetime
 
 
 """Utility helpers used throughout the project.
@@ -19,31 +17,14 @@ the AIS-like messages in this project.
 """
 
 
-SIX_BIT_ALPHABET = [char for char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"]
+SIX_BIT_ALPHABET = [
+    char for char in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"
+]
+
+SLEEP_TIME = 0.001
 
 SLOTS_PER_MINUTE = 2250
 SLOTS_DURATION = 60 / SLOTS_PER_MINUTE
-
-
-def get_ip() -> str:
-    """Return the local IP for the boat from the environment.
-
-    Loads environment variables from a .env file (via load_dotenv()) and
-    returns the value of the "IP" variable.
-
-    Returns
-    -------
-    str
-        The configured IP address string or None if the variable is absent.
-
-    Example
-    -------
-    >>> # with .env containing IP=127.0.0.1
-    >>> get_ip()
-    '127.0.0.1'
-    """
-    load_dotenv()
-    return getenv("IP")
 
 
 def get_server_ip() -> str:
@@ -76,9 +57,15 @@ def get_server_broadcast_ip() -> str:
     str
         Dotted-decimal IPv4 broadcast address (e.g. '192.168.1.255').
     """
-    ip_int = sum(int(o) << 8 * (3 - i) for i, o in enumerate(get_server_ip().split(".")))
-    mask_int = sum(int(o) << 8 * (3 - i) for i, o in enumerate(get_server_ip_netmask().split(".")))
-    return ".".join(str((ip_int | ~mask_int & 0xFFFFFFFF) >> 8 * (3 - i) & 255) for i in range(4))
+    ip_int = sum(
+        int(o) << 8 * (3 - i) for i, o in enumerate(get_server_ip().split("."))
+    )
+    mask_int = sum(
+        int(o) << 8 * (3 - i) for i, o in enumerate(get_server_ip_netmask().split("."))
+    )
+    return ".".join(
+        str((ip_int | ~mask_int & 0xFFFFFFFF) >> 8 * (3 - i) & 255) for i in range(4)
+    )
 
 
 def get_server_port(chn: str) -> int:
@@ -96,7 +83,11 @@ def get_server_port(chn: str) -> int:
         channel (from environment variables).
     """
     load_dotenv()
-    return int(getenv("87B_CHANNEL_RECEPTION_PORT")) if chn == "87B" else int(getenv("88B_CHANNEL_RECEPTION_PORT"))
+    return (
+        int(getenv("87B_CHANNEL_RECEPTION_PORT"))
+        if chn == "87B"
+        else int(getenv("88B_CHANNEL_RECEPTION_PORT"))
+    )
 
 
 def get_server_broadcast_port(chn: str) -> int:
@@ -108,7 +99,11 @@ def get_server_broadcast_port(chn: str) -> int:
         Channel name expected to be '87B' or '88B'.
     """
     load_dotenv()
-    return int(getenv("87B_CHANNEL_BROADCAST_PORT")) if chn == "87B" else int(getenv("88B_CHANNEL_BROADCAST_PORT"))
+    return (
+        int(getenv("87B_CHANNEL_BROADCAST_PORT"))
+        if chn == "87B"
+        else int(getenv("88B_CHANNEL_BROADCAST_PORT"))
+    )
 
 
 def index6(char: str) -> int:
@@ -265,7 +260,6 @@ def log(msg: str) -> None:
         log_str = f"[{curr_dt.strftime("%d/%m/%Y à %H:%M:%S.%f")} | slots {curr_s_idx}]\n\t{msg}\n\n"
         log_file.write(log_str)
         print(log_str)
-    
 
 
 def degs_to_rads(degs: float) -> float:
@@ -290,28 +284,28 @@ def rads_to_degs(rads: float) -> float:
     return rads / (np.pi / 180)
 
 
-def get_current_datetime() -> datetime.datetime:
-    """Return the current datetime (datetime.datetime.now()).
+def get_current_datetime() -> datetime:
+    """Return the current datetime (datetime.now()).
 
     This wrapper exists to ease testing and to provide a single place to
     change time retrieval behavior if necessary.
     """
-    return datetime.datetime.now()
+    return datetime.now()
 
 
-def get_timestamp(dt: datetime.datetime = None) -> float:
+def get_timestamp(dt: datetime = None) -> float:
     """Return a POSIX timestamp for a datetime object or for now.
 
     Parameters
     ----------
-    dt : datetime.datetime, optional
+    dt : datetime, optional
         If provided, the timestamp of this datetime is returned. Otherwise
         the current time is used.
     """
     return get_current_datetime().timestamp() if dt is None else dt.timestamp()
 
 
-def datetime_to_slots_idx(dt: datetime.datetime = None) -> tuple[int, int]:
+def datetime_to_slots_idx(dt: datetime = None) -> tuple[int, int]:
     """Map a datetime to slot indices used by the simulator.
 
     The function computes the current slot index (0..SLOTS_PER_MINUTE-1)
@@ -322,7 +316,7 @@ def datetime_to_slots_idx(dt: datetime.datetime = None) -> tuple[int, int]:
 
     Parameters
     ----------
-    dt : datetime.datetime, optional
+    dt : datetime, optional
         If omitted, the current datetime is used.
 
     Returns

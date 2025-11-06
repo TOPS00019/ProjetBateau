@@ -1,5 +1,12 @@
-import crc16
-import misc
+from misc import (
+    int_to_bits,
+    get_current_datetime,
+    pad_left,
+    str_to_bits,
+    bits_to_int,
+    bits_to_str,
+)
+from crc16 import CRC16
 
 
 MSG123_CONTENT = [
@@ -15,7 +22,7 @@ MSG123_CONTENT = [
     ("time_stamp", "int", 6),
     ("special_maneuvre_indicator", "int", 2),
     ("spare", "int", 3),
-    ("raim_flag", "int", 1)
+    ("raim_flag", "int", 1),
 ]
 
 MSG5_CONTENT = [
@@ -37,12 +44,12 @@ MSG5_CONTENT = [
     ("maximum_present_static_draught", "int", 8),
     ("destination", "str", 120),
     ("dte", "int", 1),
-    ("spare", "int", 1)
+    ("spare", "int", 1),
 ]
 
 
 class Message:
-    def __init__(self, boat, ais, slots_map):
+    def __init__(self, boat, ais, slots_map) -> None:
         """Build and parse AIS-like messages used by the simulation.
 
         Parameters
@@ -62,12 +69,11 @@ class Message:
         self.start_flag: str = "01111110"
         self.end_flag: str = "01111110"
         self.buffer: str = "11111111111111111111111"
-        self.crc_handler: crc16.CRC16 = crc16.CRC16()
+        self.crc_handler: CRC16 = CRC16()
         self.boat = boat
         self.ais = ais
         self.slots_map = slots_map
-        
-        
+
     def type(self, msg: str) -> int:
         """Return the message type identifier parsed from the raw bitstring.
 
@@ -85,8 +91,7 @@ class Message:
             Numeric message type.
         """
         return int(msg[40:46], 2)
-    
-    
+
     def build_sub_message(self, offset: int) -> str:
         """Build the 14-bit SOTDMA sub-message according to timeout.
 
@@ -102,17 +107,20 @@ class Message:
         """
         match self.ais.SOTDMA_NTS.timeout:
             case 3 | 5 | 7:
-                return misc.int_to_bits(self.ais.recv_stations, 14)
+                return int_to_bits(self.ais.recv_stations, 14)
             case 2 | 4 | 6:
-                return misc.int_to_bits(self.ais.SOTDMA_NTS.number, 14)
+                return int_to_bits(self.ais.SOTDMA_NTS.number, 14)
             case 1:
-                now_dt = misc.get_current_datetime()
-                return misc.pad_left(misc.int_to_bits(now_dt.hour, 5) + misc.int_to_bits(now_dt.minute, 6), 14)
+                now_dt = get_current_datetime()
+                return pad_left(
+                    int_to_bits(now_dt.hour, 5) + int_to_bits(now_dt.minute, 6), 14
+                )
             case 0:
-                return misc.int_to_bits(offset, 14)
-            
-            
-    def build_communication_state(self, type: int, keep_flag: bool, offset: int, slots_nbr: int):
+                return int_to_bits(offset, 14)
+
+    def build_communication_state(
+        self, type: int, keep_flag: bool, offset: int, slots_nbr: int
+    ) -> str:
         """Return the communication state bits appended to payloads for
         SOTDMA/ITDMA messages.
 
@@ -121,44 +129,63 @@ class Message:
         14-bit sub-message built by :meth:`build_sub_message`. For type 3
         (ITDMA) a different layout is used (offset/slots/keep_flag).
         """
-        com_state = misc.int_to_bits(self.ais.sync_state, bits_size=2)
+        com_state = int_to_bits(self.ais.sync_state, bits_size=2)
 
         if type in [1, 2]:
-            com_state += misc.int_to_bits(self.ais.SOTDMA_NTS.timeout, bits_size=3) + self.build_sub_message(offset)
+            com_state += int_to_bits(
+                self.ais.SOTDMA_NTS.timeout, bits_size=3
+            ) + self.build_sub_message(offset)
         elif type == 3:
-            com_state += misc.int_to_bits(offset, bits_size=13) + misc.int_to_bits(slots_nbr, bits_size=3) + misc.int_to_bits(1 if keep_flag else 0, 1)
+            com_state += (
+                int_to_bits(offset, bits_size=13)
+                + int_to_bits(slots_nbr, bits_size=3)
+                + int_to_bits(1 if keep_flag else 0, 1)
+            )
 
         return com_state
-    
-    
-    def build_payload(self, type: int, keep_flag: bool, offset: int, slots_nbr: int) -> str:
+
+    def build_payload(
+        self, type: int, keep_flag: bool, offset: int, slots_nbr: int
+    ) -> str:
         """Build the message payload bitstring for the provided message type.
 
         The method serializes the message fields using the MSG123_CONTENT or
         MSG5_CONTENT layout depending on the message type, and appends the
         communication-state bits for types 1,2,3.
         """
-        payload = misc.int_to_bits(type, bits_size=6) + misc.int_to_bits(3, bits_size=2)
+        payload = int_to_bits(type, bits_size=6) + int_to_bits(3, bits_size=2)
         content = MSG123_CONTENT if type in [1, 2, 3] else MSG5_CONTENT
 
         for elt in content:
-            payload += misc.int_to_bits(self.boat.get_parameter(elt[0]), bits_size=elt[2]) if elt[1] == "int" else misc.str_to_bits(self.boat.get_parameter(elt[0]), bits_size=elt[2])
+            payload += (
+                int_to_bits(self.boat.get_parameter(elt[0]), bits_size=elt[2])
+                if elt[1] == "int"
+                else str_to_bits(self.boat.get_parameter(elt[0]), bits_size=elt[2])
+            )
 
         if type in [1, 2, 3]:
-            payload += self.build_communication_state(type, keep_flag, offset, slots_nbr)
+            payload += self.build_communication_state(
+                type, keep_flag, offset, slots_nbr
+            )
 
         return payload
-            
-    
+
     def build(self, type: int, keep_flag: bool, offset: int, slots_nbr: int) -> str:
         """Build a full frame (ramp/sync/flags/payload/crc/buffer).
 
         Returns the full bitstring ready for ASCII encoding and transmission.
         """
         payload = self.build_payload(type, keep_flag, offset, slots_nbr)
-        return self.ramp_up_bits + self.sync_sequence + self.start_flag + payload + self.crc_handler.compute_crc(payload) + self.end_flag + self.buffer
-    
-    
+        return (
+            self.ramp_up_bits
+            + self.sync_sequence
+            + self.start_flag
+            + payload
+            + self.crc_handler.compute_crc(payload)
+            + self.end_flag
+            + self.buffer
+        )
+
     def parse(self, msg: str) -> dict:
         """Parse a received message bitstring into a dictionary of fields.
 
@@ -208,13 +235,17 @@ class Message:
                 raise Exception("Invalid message type")
         if self.crc_handler.verify_crc(payload, crc):
             parsed_data = {
-                "message_id": misc.bits_to_int(payload[:6]),
-                "repeat_indicator": misc.bits_to_int(payload[6:8])
+                "message_id": bits_to_int(payload[:6]),
+                "repeat_indicator": bits_to_int(payload[6:8]),
             }
             start_i = 8
 
             for elt in content:
-                parsed_data[elt[0]] = misc.bits_to_int(payload[start_i:start_i + elt[2]]) if elt[1] == "int" else misc.bits_to_str(payload[start_i:start_i + elt[2]])
+                parsed_data[elt[0]] = (
+                    bits_to_int(payload[start_i : start_i + elt[2]])
+                    if elt[1] == "int"
+                    else bits_to_str(payload[start_i : start_i + elt[2]])
+                )
                 start_i += elt[2]
 
             if type == 5:
@@ -225,34 +256,33 @@ class Message:
                 # communication-state fields for 1/2 are located near the
                 # end of the standard payload area; the indices below map
                 # to the 2-bit sync state and 3-bit slot_timeout.
-                parsed_data["sync_state"] = misc.bits_to_int(payload[149:151])
-                parsed_data["slot_timeout"] = misc.bits_to_int(payload[151:154])
+                parsed_data["sync_state"] = bits_to_int(payload[149:151])
+                parsed_data["slot_timeout"] = bits_to_int(payload[151:154])
 
                 match parsed_data["slot_timeout"]:
                     case 0:
                         # offset-based submessage (14 bits)
-                        parsed_data["slot_offset"] = misc.bits_to_int(sub_message)
+                        parsed_data["slot_offset"] = bits_to_int(sub_message)
                     case 1:
                         # UTC hour/minute encoded inside the 14-bit submessage
-                        parsed_data["utc_hour"] = misc.bits_to_int(sub_message[:8])
-                        parsed_data["utc_minute"] = misc.bits_to_int(sub_message[8:])
+                        parsed_data["utc_hour"] = bits_to_int(sub_message[:8])
+                        parsed_data["utc_minute"] = bits_to_int(sub_message[8:])
                     case 2 | 4 | 6:
                         # submessage holds an explicit slot number
-                        parsed_data["slot_number"] = misc.bits_to_int(sub_message)
+                        parsed_data["slot_number"] = bits_to_int(sub_message)
                     case 3 | 5 | 7:
                         # submessage holds a count of received stations
-                        parsed_data["received_stations"] = misc.bits_to_int(sub_message)
+                        parsed_data["received_stations"] = bits_to_int(sub_message)
             elif type == 3:
                 # ITDMA-specific communication-state layout: the slot
                 # increment is 13 bits followed by a 3-bit slots count and
                 # the 1-bit keep_flag.
-                parsed_data["sync_state"] = misc.bits_to_int(payload[149:151])
-                parsed_data["slot_increment"] = misc.bits_to_int(payload[151:164])
-                parsed_data["number_of_slots"] = misc.bits_to_int(payload[164:167])
-                parsed_data["keep_flag"] = misc.bits_to_int(payload[167:168])
+                parsed_data["sync_state"] = bits_to_int(payload[149:151])
+                parsed_data["slot_increment"] = bits_to_int(payload[151:164])
+                parsed_data["number_of_slots"] = bits_to_int(payload[164:167])
+                parsed_data["keep_flag"] = bits_to_int(payload[167:168])
             else:
                 raise Exception("Unkown message type")
             return parsed_data
         else:
             raise Exception("Corrupted message")
-        

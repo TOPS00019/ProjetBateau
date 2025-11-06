@@ -1,5 +1,5 @@
-import misc
-import threading
+from misc import datetime_to_slots_idx, SLOTS_PER_MINUTE
+from threading import Lock
 from typing import Literal
 
 
@@ -20,7 +20,7 @@ class Slot:
         Remaining timeout steps for the reservation (0..7) or None.
     frames_since_last_use : int | None
         Small counter used by cleanup logic to expire unused slots.
-    lock : threading.Lock
+    lock : Lock
         Lock protecting concurrent updates to this slot.
     """
 
@@ -33,12 +33,14 @@ class Slot:
             Slot index in the combined two-channel space.
         """
         self.number: int = number
-        self.channel: Literal["87B", "88B"] = "87B" if number < misc.SLOTS_PER_MINUTE else "88B"
+        self.channel: Literal["87B", "88B"] = (
+            "87B" if number < SLOTS_PER_MINUTE else "88B"
+        )
         self.assigned: bool = False
         self.owner: str = None
         self.timeout: Literal[0, 1, 2, 3, 4, 5, 6, 7] = None
         self.frames_since_last_use: Literal[-1, 0, 1, 2, 3] | None = None
-        self.lock = threading.Lock()
+        self.lock = Lock()
 
     def __str__(self) -> str:
         """Return a compact string representation used for debugging."""
@@ -47,6 +49,29 @@ class Slot:
     def __repr__(self) -> str:
         """Same as :meth:`__str__` - helpful in interactive prints."""
         return self.__str__()
+
+    def is_current(self) -> bool:
+        """Return True if this slot corresponds to the current slot index.
+
+        The function compares the slot number against the pair returned by
+        :func:`datetime_to_slots_idx`.
+        """
+        # We hold the lock to avoid races with transient updates to the
+        # slot's number/channel fields (though those are immutable in
+        # the current design). The function tests membership inside the
+        # tuple (slot_87b_idx, slot_88b_idx) returned by the helper.
+        with self.lock:
+            return self.number in datetime_to_slots_idx()
+
+    def mark_as_used(self) -> None:
+        """Mark the slot as recently used (reset the frames counter).
+
+        This does not modify reservation timeout; it only resets the
+        frames_since_last_use counter so the background cleanup thread
+        knows it was active recently.
+        """
+        with self.lock:
+            self.frames_since_last_use = -1
 
     def book(self, mmsi: str, timeout: int = None, assigned: bool = False) -> None:
         """Reserve this slot for a given MMSI.
@@ -71,30 +96,6 @@ class Slot:
                 self.assigned = assigned
                 self.frames_since_last_use = -1
 
-
-    def release(self) -> None:
-        """Release any reservation on this slot and reset state.
-
-        This operation is thread-safe.
-        """
-        with self.lock:
-            self.owner = None
-            self.timeout = None
-            self.assigned = False
-            self.frames_since_last_use = None
-
-
-    def mark_as_used(self) -> None:
-        """Mark the slot as recently used (reset the frames counter).
-
-        This does not modify reservation timeout; it only resets the
-        frames_since_last_use counter so the background cleanup thread
-        knows it was active recently.
-        """
-        with self.lock:
-            self.frames_since_last_use = -1
-
-
     def use(self) -> None:
         """Consume one usage cycle of the slot.
 
@@ -117,16 +118,13 @@ class Slot:
             with self.lock:
                 self.timeout -= 1
 
+    def release(self) -> None:
+        """Release any reservation on this slot and reset state.
 
-    def is_current(self) -> bool:
-        """Return True if this slot corresponds to the current slot index.
-
-        The function compares the slot number against the pair returned by
-        :func:`misc.datetime_to_slots_idx`.
+        This operation is thread-safe.
         """
-        # We hold the lock to avoid races with transient updates to the
-        # slot's number/channel fields (though those are immutable in
-        # the current design). The function tests membership inside the
-        # tuple (slot_87b_idx, slot_88b_idx) returned by the helper.
         with self.lock:
-            return self.number in misc.datetime_to_slots_idx()
+            self.owner = None
+            self.timeout = None
+            self.assigned = False
+            self.frames_since_last_use = None

@@ -1,8 +1,7 @@
-import time
+from time import time, sleep
 import numpy as np
-import threading
-import random
-import misc
+from threading import Thread
+from misc import degs_to_rads, SLEEP_TIME
 
 
 BOAT_INFO_KEYS = [
@@ -141,7 +140,7 @@ class Boat:
         self.rate_of_turn = rate_of_turn  # -126 - +126, = round(4.733 * sqrt(rot capteur))
         self.true_heading = true_heading  # 0-359, 511 pour non disponible
         
-        self.boat_position_updater_thread = threading.Thread(target=self.update_boat_position, daemon=True)
+        self.boat_position_updater_thread = Thread(target=self.update_boat_position, daemon=True)
         self.boat_position_updater_thread.start()
         
     
@@ -162,14 +161,14 @@ class Boat:
      
         
     def update_boat_position(self) -> None:
-        last_update_time = time.time()
+        last_update_time = time()
         while True:
-            update_time = time.time()
+            update_time = time()
             elapsed_time = last_update_time - update_time
             last_update_time = update_time
             
-            vertical_speed = np.sin(misc.degs_to_rads(self.course_over_ground)) * self.speed_over_ground * (10/36) # En 10000 èmes d'arc par seconde
-            horizontal_speed = np.cos(misc.degs_to_rads(self.course_over_ground)) * (10/36) # En 10000 èmes d'arc par seconde
+            vertical_speed = np.sin(degs_to_rads(self.course_over_ground)) * self.speed_over_ground * (10/36) # En 10000 èmes d'arc par seconde
+            horizontal_speed = np.cos(degs_to_rads(self.course_over_ground)) * (10/36) # En 10000 èmes d'arc par seconde
             deg_rot = self.ais_to_deg_rot(self.rate_of_turn)
             
             new_course_over_ground = (self.course_over_ground + deg_rot)%360
@@ -181,7 +180,7 @@ class Boat:
             self.true_heading = new_true_heading
             self.latitude = new_latitude
             self.longitude = new_longitude
-            time.sleep(0.001)
+            sleep(SLEEP_TIME)
             
     
     def set_parameter(self, param: str, value) -> None:
