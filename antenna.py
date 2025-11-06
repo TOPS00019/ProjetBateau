@@ -28,8 +28,13 @@ class Antenna:
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         # bind to the local broadcast port used by boats for this channel
+        # Bind the socket to the boat's local IP and the broadcast port
+        # for this channel so we can receive broadcasts. We also connect
+        # the UDP socket to the server's reception address which is a
+        # convenient way to set the default send target (it does not
+        # create a TCP connection; UDP 'connect' simply records the
+        # peer address for send()).
         self.sock.bind((misc.get_ip(), misc.get_server_broadcast_port(self.channel)))
-        # connect to server to ease sending to the server's reception port
         self.sock.connect((misc.get_server_ip(), misc.get_server_port(self.channel)))
         self.listener_thread = threading.Thread(target=self.listen)
         self.listener_thread.start()

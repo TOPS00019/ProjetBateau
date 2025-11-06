@@ -189,11 +189,19 @@ class Message:
         match type:
             case 1 | 2 | 3:
                 content = MSG123_CONTENT
+                # For types 1/2/3 the payload occupies bits 40..207
+                # (inclusive) so we slice msg[40:208]. CRC follows
+                # directly after the payload (208..223). The submessage
+                # used by SOTDMA/ITDMA decoding lives inside the payload
+                # at payload[154:168]. These offsets are specific to the
+                # simplified frame layout used by this project.
                 payload = msg[40:208]
                 crc = msg[208:224]
                 sub_message = payload[154:168]
             case 5:
                 content = MSG5_CONTENT
+                # Type 5 uses a longer payload range (40..463) and a CRC
+                # immediately after (464..479).
                 payload = msg[40:464]
                 crc = msg[464:480]
             case _:
@@ -214,20 +222,30 @@ class Message:
                 # project's simplified model
                 pass
             elif type in [1, 2]:
+                # communication-state fields for 1/2 are located near the
+                # end of the standard payload area; the indices below map
+                # to the 2-bit sync state and 3-bit slot_timeout.
                 parsed_data["sync_state"] = misc.bits_to_int(payload[149:151])
                 parsed_data["slot_timeout"] = misc.bits_to_int(payload[151:154])
 
                 match parsed_data["slot_timeout"]:
                     case 0:
+                        # offset-based submessage (14 bits)
                         parsed_data["slot_offset"] = misc.bits_to_int(sub_message)
                     case 1:
+                        # UTC hour/minute encoded inside the 14-bit submessage
                         parsed_data["utc_hour"] = misc.bits_to_int(sub_message[:8])
                         parsed_data["utc_minute"] = misc.bits_to_int(sub_message[8:])
                     case 2 | 4 | 6:
+                        # submessage holds an explicit slot number
                         parsed_data["slot_number"] = misc.bits_to_int(sub_message)
                     case 3 | 5 | 7:
+                        # submessage holds a count of received stations
                         parsed_data["received_stations"] = misc.bits_to_int(sub_message)
             elif type == 3:
+                # ITDMA-specific communication-state layout: the slot
+                # increment is 13 bits followed by a 3-bit slots count and
+                # the 1-bit keep_flag.
                 parsed_data["sync_state"] = misc.bits_to_int(payload[149:151])
                 parsed_data["slot_increment"] = misc.bits_to_int(payload[151:164])
                 parsed_data["number_of_slots"] = misc.bits_to_int(payload[164:167])

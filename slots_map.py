@@ -90,8 +90,15 @@ class SlotsMap:
         ----------
         i : int, optional
             If provided, must be 0 or 1 and returns the specific slot for
-            that channel. If omitted, a generator yielding both the 87B
-            and 88B slot is returned.
+            that channel (0 -> 87B, 1 -> 88B). If omitted, a list with
+            two Slot objects is returned where the first element is the
+            87B slot and the second the 88B slot.
+
+        Returns
+        -------
+        list[slot.Slot] or slot.Slot
+            Either a two-element list [slot_87b, slot_88b] when ``i`` is
+            omitted, or a single :class:`slot.Slot` when ``i`` is 0 or 1.
         """
         return [self.slots[s_i] for s_i in misc.datetime_to_slots_idx()] if i is None else self.slots[misc.datetime_to_slots_idx()[i]]
         
@@ -184,9 +191,16 @@ class SlotsMap:
         """
         start_si, end_si = int(start_si % misc.SLOTS_PER_MINUTE), int(end_si % misc.SLOTS_PER_MINUTE)
         ssi_range: list[slot.Slot]
+        # If the requested channel is 88B we offset indices into the
+        # second half of the internal slots array which represents the
+        # second simultaneous channel.
         if chn == "88B":
             start_si += misc.SLOTS_PER_MINUTE
             end_si += misc.SLOTS_PER_MINUTE
+        # Handle the wrap-around case when start_si > end_si by
+        # concatenating the two sub-intervals. Note: callers expect the
+        # returned range to cover the minute-scale indices between start
+        # and end (wrapping at SLOTS_PER_MINUTE).
         ssi_range = list(range(start_si, end_si)) if start_si <= end_si else list(range(start_si, misc.SLOTS_PER_MINUTE)) + list(range(end_si + 1))
         return [self.slots[si] for si in ssi_range]
     
@@ -239,28 +253,39 @@ class SlotsMap:
             found an empty list is returned.
         """
         sel_ss = []
-        
+
+        # Determine minute-scale reference index (default: current 87B)
         if ref_si is None:
             ref_si = self.current_slots(0).number
         else:
             ref_si = int(ref_si % misc.SLOTS_PER_MINUTE)
-            
+
         end_si = int((ref_si + length) % misc.SLOTS_PER_MINUTE)
-        
+
+        # Gather available slots on both channels within the same
+        # minute-scale window. The helper compute_slots_range will map
+        # these correctly into each channel half.
         available_ss = [self.extract_available_slots(self.compute_slots_range("87B", ref_si, end_si)),
                         self.extract_available_slots(self.compute_slots_range("88B", ref_si, end_si))]
+
+        # Only consider channels that have at least a small pool of
+        # available slots (threshold uses 4 or requested block size).
         available_chns = [i for i in (0,1) if len(available_ss[i]) >= max(s_cnt,4)]
         if available_chns:
             chosen_chn: int
+            # If a preferred channel was requested and it has candidates
+            # prefer it, otherwise pick randomly between the available ones.
             if chn is not None and chn == "87B" and 0 in available_chns:
                 chosen_chn = 0
             elif chn is not None and chn == "88B" and 1 in available_chns:
                 chosen_chn = 1
             else:
                 chosen_chn = random.choice(available_chns)
+            # Choose a contiguous block inside the flattened list of
+            # available slots for that channel.
             ref_si = random.randrange(len(available_ss[chosen_chn])-s_cnt-1)
             sel_ss = available_ss[chosen_chn][ref_si:ref_si+s_cnt]
-            
+
         return sorted(sel_ss, key=lambda s: s.number)
     
     

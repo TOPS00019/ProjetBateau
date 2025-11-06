@@ -110,6 +110,10 @@ class Slot:
         elif self.timeout == 0:
             self.release()
         elif self.timeout is not None:
+            # Decrement the timeout in a thread-safe manner. Note that
+            # timeout semantics: None == infinite reservation; numeric
+            # values count down until 0 which triggers a release on next
+            # use(). We protect the mutation with the slot's lock.
             with self.lock:
                 self.timeout -= 1
 
@@ -120,5 +124,9 @@ class Slot:
         The function compares the slot number against the pair returned by
         :func:`misc.datetime_to_slots_idx`.
         """
+        # We hold the lock to avoid races with transient updates to the
+        # slot's number/channel fields (though those are immutable in
+        # the current design). The function tests membership inside the
+        # tuple (slot_87b_idx, slot_88b_idx) returned by the helper.
         with self.lock:
             return self.number in misc.datetime_to_slots_idx()

@@ -70,12 +70,19 @@ class AIS:
     def handle_transmission(self, t: str, chn: str) -> None:
         """Handle an incoming transmission received by an Antenna.
 
-        The function decodes the incoming ASCII-encoded bitstring, parses
-        the message, then updates the local boats registry and slot
-        reservations according to the message type and communication
-        state fields. If the AIS instance is currently transmitting the
-        function returns early (to avoid self-processing transmitted
-        frames).
+        Decode the ASCII-encoded bitstring received from the network,
+        parse it into structured fields and update local state (boats
+        registry and slot reservations) according to the message type
+        and communication-state fields. The function intentionally
+        ignores messages originating from this boat (by comparing
+        the parsed MMSI) to avoid processing our own transmissions.
+
+        Notes on behaviour
+        - Incoming data is first decoded from the ASCII bitstring
+          representation and then parsed by :class:`message.Message`.
+        - Depending on the message type (1,2,3,5) the method will
+          update the boats registry and perform slot bookkeeping
+          (book/release/use) on the receiving slot.
 
         Parameters
         ----------
@@ -86,9 +93,16 @@ class AIS:
         """
         t_ss = self.slots_map.current_slots()
         t_s =  t_ss[0] if chn == "87B" else t_ss[1]
+        # decode incoming ASCII bitstring into the project's internal
+        # six-bit text representation before handing it to the parser
         decoded_t = misc.decode_string(t)
         parsed_data: str
-        
+
+        # The message parser raises Exceptions for unsupported types or
+        # corrupted payloads. The original implementation uses string
+        # literals in the except clauses; we preserve that behaviour
+        # here and simply log the outcome so the listener thread keeps
+        # running even on malformed frames.
         try:
             parsed_data = self.msg_handler.parse(decoded_t)
         except "Unkown message type":
@@ -97,7 +111,8 @@ class AIS:
             misc.log(f"Message corrompu reçu et ignoré.")
         except:
             misc.log(f"Erreur inconnue lors de la réception d'une transmission.")
-            
+
+        # Ignore our own transmissions to avoid self-processing
         if parsed_data["mmsi"] != self.boat.mmsi:
             if parsed_data["message_id"] in [1, 2, 3, 5]:
                 if self.boats_registry.has_boat(parsed_data["mmsi"]):
@@ -105,30 +120,56 @@ class AIS:
                 else:
                     self.boats_registry.add_boat(parsed_data)
 
+                # Slot bookkeeping policy summary:
+                # - If the receiving slot is unowned or already owned by
+                #   the sender, update usage counters and reservation
+                #   fields according to the message communication state.
+                # - Message types 1/2: SOTDMA communication-state may
+                #   include timeout/offset or other submessage variants.
+                # - Message type 3: ITDMA - has keep_flag and slot
+                #   increment fields that cause booking/release behavior.
                 if t_s.owner is None or t_s.owner == parsed_data["mmsi"]:
+                    # If a timeout is set we consume one unit of it; if
+                    # timeout is None we only mark the slot as recently
+                    # used (no automatic expiration counting).
                     if t_s.timeout is not None:
                         t_s.use()
                     else:
                         t_s.mark_as_used()
 
+                    # Handle SOTDMA message types (1,2)
                     if parsed_data["message_id"] in [1, 2]:
+                        # Booking logic based on slot_timeout semantics
                         if t_s.owner is None and parsed_data["slot_timeout"] > 0:
                             t_s.book(parsed_data["mmsi"], timeout=parsed_data["slot_timeout"])
                         elif t_s.timeout is None and parsed_data["slot_timeout"] > 0:
+                            # If we previously had an infinite reservation
+                            # (timeout is None) we set a numeric timeout
                             t_s.timeout = parsed_data["slot_timeout"]
                         elif t_s.timeout is None and parsed_data["slot_timeout"] == 0:
+                            # A timeout==0 in the communication state means
+                            # the reservation has been released
                             t_s.release()
 
+                        # A slot_timeout==0 may also carry an explicit
+                        # offset that requests a reservation on another
+                        # minute-scale slot; compute and apply it.
                         if parsed_data["slot_timeout"] == 0:
                             rsv_s = self.slots_map.compute_offset_slot(t_s, parsed_data["slot_offset"])
                             rsv_s.book(parsed_data["mmsi"], timeout=parsed_data["slot_timeout"])
                             t_s.release()
+
+                    # Handle ITDMA messages (type 3)
                     elif parsed_data["message_id"] == 3:
                         if not parsed_data["keep_flag"]:
+                            # keep_flag false => relinquish the slot
                             t_s.release()
                         elif t_s.owner is None and parsed_data["keep_flag"]:
+                            # keep_flag true and slot unowned => book it
                             t_s.book(parsed_data["mmsi"])
 
+                        # If a slot increment is provided, compute the
+                        # absolute index and book that slot for the sender
                         if parsed_data["slot_increment"] > 0:
                             rsv_s = int((parsed_data["slot_increment"] + t_s.number) % misc.SLOTS_PER_MINUTE)
 
@@ -136,9 +177,11 @@ class AIS:
                                 rsv_s += misc.SLOTS_PER_MINUTE
 
                             self.slots_map.slots[rsv_s].book(parsed_data["mmsi"])
+
+                    # Type 5 contains static information that does not
+                    # impact local slot reservations in this simplified
+                    # simulation. It's parsed and stored elsewhere.
                     elif parsed_data["message_id"] == 5:
-                        # Type 5 (static information) parsing is accepted but in
-                        # this simplified simulation no extra slot behavior is needed
                         pass
             misc.log(f"Message {parsed_data["message_id"]} reçu du navire {parsed_data["mmsi"]} : {parsed_data}")
             #print(self.slots_map.get_owned_slots())
@@ -155,29 +198,15 @@ class AIS:
         self.SOTDMA_NS = self.SOTDMA_NSS
         
         
-    def set_next_NS(self) -> slot.Slot:
-                """Advance the SOTDMA 'NS' to the next computed value.
+    def set_next_NS(self) -> None:
+        """Advance the SOTDMA 'NS' to the next computed value.
 
-                This method updates the instance attribute ``SOTDMA_NS`` by
-                computing the next NS value using the current station state
-                (NSS and t counter). It delegates the actual calculation to
-                :py:meth:`get_next_NS` and stores the returned :class:`slot.Slot`
-                object in ``self.SOTDMA_NS``.
-
-                Returns
-                -------
-                slot.Slot
-                        The Slot instance that was computed and assigned to
-                        ``self.SOTDMA_NS``.
-
-                Notes
-                -----
-                - This method has no side effects other than setting the
-                    ``SOTDMA_NS`` attribute.
-                - It does not block or perform any I/O; it only calculates
-                    and stores the next slot reference.
-                """
-                self.SOTDMA_NS = self.get_next_NS()
+        This method computes the next NS using :meth:`get_next_NS` and
+        stores the resulting :class:`slot.Slot` object in
+        ``self.SOTDMA_NS``. It does not return a value; its purpose is
+        to update the instance state.
+        """
+        self.SOTDMA_NS = self.get_next_NS()
         
     
     def get_next_NS(self, rank: int = 0) -> slot.Slot:
@@ -371,19 +400,28 @@ class AIS:
         messages (type 3) until the computed offset becomes zero which
         ends the initial negotiation.
         """
+        # The initial frame procedure tries successive provisional ITDMA
+        # transmissions (type 3) to negotiate an offset that synchronizes
+        # our station on the network. We loop until the computed offset
+        # becomes zero which indicates successful negotiation.
         offset = None
         self.SOTDMA_t_counter += 1
         ref_NTS = self.SOTDMA_NTS
         while offset is None or offset != 0:
             self.set_next_NS()
             next_NTS = self.set_next_NTS()
+            # Only compute an offset if the candidate NTS is sufficiently
+            # far from the reference (outside the SI window), otherwise
+            # treat the offset as zero.
             offset = self.slots_map.compute_slot_offset(next_NTS, self.SOTDMA_NTS) if self.slots_map.compute_absolute_slot_distance(next_NTS, ref_NTS) >= self.SOTDMA_SI else 0
             self.ITDMA(self.SOTDMA_NTS, 3, lme_itinc=offset, lme_itkp=True, lme_itsl=1)
             self.SOTDMA_t_counter += 1
             misc.log(f"NTS réservé pour le prochain message 3 : {next_NTS}.")
             if offset != 0:
+                # Keep the provisional reservation as our next NTS
                 self.SOTDMA_NTS = next_NTS
             else:
+                # The negotiation succeeded: free the provisional slot
                 next_NTS.release()
                 self.SOTDMA_NTS = ref_NTS
                 self.SOTDMA_t_counter -= 1
@@ -398,12 +436,19 @@ class AIS:
         send messages with appropriate communication-state fields and
         advance internal counters.
         """
+        # Continuous operation per-frame handling. Several cases are
+        # considered: missing NTS (we need to reserve a replacement),
+        # message types that carry no communication-state, and types
+        # that require SOTDMA communication-state handling.
         if self.get_next_NTS() is None:
             self.SOTDMA_t_counter += 1
             self.set_next_NS()
             next_NTS = self.set_next_NTS()
             offset = self.slots_map.compute_slot_offset(next_NTS, self.SOTDMA_NTS)
             misc.log(f"NTS manquant détecté. Réservation du NTS {next_NTS} pour le remplacer.")
+            # Wait until our currently selected NTS becomes active and
+            # send an ITDMA (type 3) informing of the replacement offset
+            # to the network, then adopt the newly reserved NTS.
             self.wait_for_NTS()
             self.ITDMA(self.SOTDMA_NTS, 3, lme_itinc=offset, lme_itkp=True, lme_itsl=1)
             self.SOTDMA_NTS = next_NTS

@@ -200,6 +200,9 @@ def bits_to_str(bits: str) -> str:
     str
         Decoded text using the SIX_BIT_ALPHABET.
     """
+    # Drop leading null 6-bit groups which are used as padding in this
+    # project's encoding scheme. Then collect bits into 6-bit groups
+    # and translate them to characters using the SIX_BIT_ALPHABET.
     groups = [""]
     while bits[0:6] == "000000":
         bits = bits[6:]
@@ -327,6 +330,13 @@ def datetime_to_slots_idx(dt: datetime.datetime = None) -> tuple[int, int]:
     tuple[int,int]
         (slot_index_on_87B, slot_index_on_88B)
     """
+    # Compute the minute-scale slot index by converting the current
+    # time into milliseconds inside the current minute and dividing by
+    # the per-slot duration expressed in milliseconds. The function
+    # returns both channel indices: the 87B index and the 88B index
+    # which is the 87B value offset by one full SLOTS_PER_MINUTE.
     eff_dt = get_current_datetime() if dt is None else dt
-    s_i = int((eff_dt.microsecond / 1000 + eff_dt.second * 1000) // ((60 / SLOTS_PER_MINUTE) * 1000))
+    # milliseconds elapsed in the current minute
+    ms_in_minute = eff_dt.microsecond / 1000 + eff_dt.second * 1000
+    s_i = int(ms_in_minute // ((60 / SLOTS_PER_MINUTE) * 1000))
     return (s_i, s_i + SLOTS_PER_MINUTE)
