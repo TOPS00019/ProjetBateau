@@ -1,0 +1,124 @@
+import misc
+import threading
+from typing import Literal
+
+
+class Slot:
+    """Representation of a time slot used by the AIS simulation.
+
+    Attributes
+    ----------
+    number : int
+        Absolute slot number in the 2*SLOTS_PER_MINUTE space.
+    channel : Literal['87B','88B']
+        Channel this slot belongs to determined from the number.
+    assigned : bool
+        Whether the slot was explicitly assigned.
+    owner : str | None
+        MMSI (or identifier) of the owner that reserved the slot.
+    timeout : int | None
+        Remaining timeout steps for the reservation (0..7) or None.
+    frames_since_last_use : int | None
+        Small counter used by cleanup logic to expire unused slots.
+    lock : threading.Lock
+        Lock protecting concurrent updates to this slot.
+    """
+
+    def __init__(self, number: int):
+        """Initialize a new Slot.
+
+        Parameters
+        ----------
+        number : int
+            Slot index in the combined two-channel space.
+        """
+        self.number: int = number
+        self.channel: Literal["87B", "88B"] = "87B" if number < misc.SLOTS_PER_MINUTE else "88B"
+        self.assigned: bool = False
+        self.owner: str = None
+        self.timeout: Literal[0, 1, 2, 3, 4, 5, 6, 7] = None
+        self.frames_since_last_use: Literal[-1, 0, 1, 2, 3] | None = None
+        self.lock = threading.Lock()
+
+    def __str__(self) -> str:
+        """Return a compact string representation used for debugging."""
+        return f"[{self.number}, {self.owner}, {self.timeout}]"
+
+    def __repr__(self) -> str:
+        """Same as :meth:`__str__` - helpful in interactive prints."""
+        return self.__str__()
+
+    def book(self, mmsi: str, timeout: int = None, assigned: bool = False) -> None:
+        """Reserve this slot for a given MMSI.
+
+        The reservation is only performed if the slot is currently free
+        (owner is None). The method is thread-safe and will set the
+        initial frames_since_last_use to -1 to mark recent usage.
+
+        Parameters
+        ----------
+        mmsi : str
+            Owner identifier to book the slot for.
+        timeout : int, optional
+            Timeout field to attach to the reservation.
+        assigned : bool, optional
+            Whether the slot should be flagged as assigned.
+        """
+        with self.lock:
+            if self.owner is None:
+                self.owner = mmsi
+                self.timeout = timeout
+                self.assigned = assigned
+                self.frames_since_last_use = -1
+
+
+    def release(self) -> None:
+        """Release any reservation on this slot and reset state.
+
+        This operation is thread-safe.
+        """
+        with self.lock:
+            self.owner = None
+            self.timeout = None
+            self.assigned = False
+            self.frames_since_last_use = None
+
+
+    def mark_as_used(self) -> None:
+        """Mark the slot as recently used (reset the frames counter).
+
+        This does not modify reservation timeout; it only resets the
+        frames_since_last_use counter so the background cleanup thread
+        knows it was active recently.
+        """
+        with self.lock:
+            self.frames_since_last_use = -1
+
+
+    def use(self) -> None:
+        """Consume one usage cycle of the slot.
+
+        Behavior:
+        - mark the slot as used
+        - if timeout is None do nothing (unlimited)
+        - if timeout == 0 release the slot
+        - otherwise decrement the timeout value in a thread-safe way
+        """
+        self.mark_as_used()
+        if self.timeout is None:
+            pass
+        elif self.timeout == 0:
+            self.release()
+        elif self.timeout is not None:
+            with self.lock:
+                self.timeout -= 1
+
+
+    def is_current(self) -> bool:
+        """Return True if this slot corresponds to the current slot index.
+
+        The function compares the slot number against the pair returned by
+        :func:`misc.datetime_to_slots_idx`.
+        """
+        with self.lock:
+            return self.number in misc.datetime_to_slots_idx()
